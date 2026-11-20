@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <!-- Fill the whole screen on phones and tablets; no pinch zoom, no double-tap zoom, content under the notch is handled in Unity. -->
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#1a140f">
+    <title>RPG2023</title>
+    <link rel="stylesheet" href="TemplateData/style.css">
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas" tabindex="-1"></canvas>
+      <div id="unity-loading">
+        <div id="unity-loading-title">RPG2023</div>
+        <div id="unity-progress"><div id="unity-progress-fill"></div></div>
+        <div id="unity-loading-text">載入中…</div>
+      </div>
+      <div id="unity-warning"></div>
+    </div>
+    <script>
+      // Remember every Web Audio context the game creates, so the first touch / click can wake them all at once and the
+      // first sound effect is never lost (see Assets/Plugins/WebGL/GameSfx.jslib). Contexts work exactly as before.
+      (function () {
+        var Native = window.AudioContext || window.webkitAudioContext;
+        if (!Native) return;
+        window.__gameAudioContexts = [];
+        var Recorded = function (options) {
+          var context = options !== undefined ? new Native(options) : new Native();
+          window.__gameAudioContexts.push(context);
+          return context;
+        };
+        Recorded.prototype = Native.prototype;
+        if (window.AudioContext) window.AudioContext = Recorded;
+        if (window.webkitAudioContext) window.webkitAudioContext = Recorded;
+      })();
+
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var loading = document.querySelector("#unity-loading");
+      var progressFill = document.querySelector("#unity-progress-fill");
+      var warningBanner = document.querySelector("#unity-warning");
+
+      // The canvas always covers the visible window (window.innerWidth/innerHeight also track the mobile
+      // address bar). Unity matches its render size to the canvas, so the game re-lays out on every resize
+      // and rotation; the CSS size never exceeds the window, so the page never scrolls.
+      function fitCanvas() {
+        var w = window.innerWidth, h = window.innerHeight;
+        if (window.visualViewport) { w = Math.round(window.visualViewport.width); h = Math.round(window.visualViewport.height); }
+        container.style.width = w + "px";
+        container.style.height = h + "px";
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+      }
+      fitCanvas();
+      window.addEventListener("resize", fitCanvas);
+      window.addEventListener("orientationchange", function () { setTimeout(fitCanvas, 120); setTimeout(fitCanvas, 500); });
+      if (window.visualViewport) window.visualViewport.addEventListener("resize", fitCanvas);
+
+      // Keep touches for the game: no page scroll, pull-to-refresh, long-press menu or pinch zoom (touch-action: none
+      // in the CSS stops double-tap zoom). touchend is left alone so Unity's on-screen keyboard can still open for
+      // the login fields; Unity reads the touches itself either way.
+      // On the map one finger holds the joystick while another taps 進入: Safari's pinch events and double-click
+      // zoom are blocked too, so two fingers on the canvas never zoom or scroll the page.
+      ["touchstart", "touchmove", "gesturestart", "gesturechange", "gestureend"].forEach(function (type) {
+        canvas.addEventListener(type, function (e) { if (e.cancelable) e.preventDefault(); }, { passive: false });
+      });
+      canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      canvas.addEventListener("dblclick", function (e) { e.preventDefault(); });
+      document.addEventListener("keydown", function (e) {
+        // Space and the arrow keys are game controls; do not let them scroll the page.
+        if ([" ", "Spacebar", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.key) >= 0) e.preventDefault();
+      }, { passive: false });
+
+      function unityShowBanner(msg, type) {
+        var div = document.createElement("div");
+        div.innerHTML = msg;
+        div.className = type == "error" ? "error" : "warning";
+        warningBanner.appendChild(div);
+        warningBanner.style.display = "block";
+        if (type != "error") setTimeout(function () { warningBanner.removeChild(div); if (!warningBanner.children.length) warningBanner.style.display = "none"; }, 5000);
+      }
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/49a19d578ed02fa21eceb37f9d3da84c.loader.js";
+      var config = {
+        arguments: [],
+        dataUrl: buildUrl + "/ae9ae9e078baa97c989251fd92a764de.data.unityweb",
+        frameworkUrl: buildUrl + "/0602f0dba341442403bb0836802fb6fe.framework.js.unityweb",
+        codeUrl: buildUrl + "/f4489349d567fbf83ecb09b89a06ad13.wasm.unityweb",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "RPG2023",
+        productVersion: "0.1",
+        showBanner: unityShowBanner,
+        // Unity follows the canvas size (on by default); cap the pixel ratio so phones stay smooth.
+        matchWebGLToCanvasSize: true,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      };
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          progressFill.style.width = (100 * progress) + "%";
+        }).then(function (unityInstance) {
+          loading.style.display = "none";
+          fitCanvas();
+        }).catch(function (message) {
+          alert(message);
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
