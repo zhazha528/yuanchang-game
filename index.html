@@ -8,14 +8,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#1a140f">
-    <title>RPG2023</title>
+    <!-- The name players see (tab, loading screen, home-screen icon). Player Settings' product name stays "RPG2023" on purpose:
+         Windows/Android builds and the editor keep their saved data under it. -->
+    <meta name="apple-mobile-web-app-title" content="遊戲元長">
+    <title>遊戲元長</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
     <div id="unity-container">
       <canvas id="unity-canvas" tabindex="-1"></canvas>
       <div id="unity-loading">
-        <div id="unity-loading-title">RPG2023</div>
+        <div id="unity-loading-title">遊戲元長</div>
         <div id="unity-progress"><div id="unity-progress-fill"></div></div>
         <div id="unity-loading-text">載入中…</div>
       </div>
