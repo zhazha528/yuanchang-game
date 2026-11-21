@@ -3,9 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <!-- Fill the whole screen on phones and tablets; no pinch zoom, no double-tap zoom, content under the notch is handled in Unity. -->
-    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- Fill the whole screen on phones and tablets; no pinch zoom, no double-tap zoom. viewport-fit=cover lets full
+         screen use the camera cut-out area too; the game keeps its buttons clear of it (WebSafeArea, env(safe-area-inset-*)). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- 「加入主畫面」: opened from the home screen the game has no address bar (iPhone: standalone; Android: full screen, landscape). -->
+    <link rel="manifest" href="TemplateData/manifest.json">
+    <link rel="apple-touch-icon" href="TemplateData/icons/apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#1a140f">
     <!-- The name players see (tab, loading screen, home-screen icon). Player Settings' product name stays "RPG2023" on purpose:
@@ -24,6 +29,14 @@
         <div id="unity-loading-text">載入中…</div>
       </div>
       <div id="unity-warning"></div>
+    </div>
+    <!-- iPhone Safari cannot go full screen in a web page: on the login screen, a short note on adding the game to the
+         home screen (shown by the game through window.gameHomeScreenTip; 「×」 hides it for good on this phone). -->
+    <div id="home-tip" hidden>
+      <div id="home-tip-text">
+        <b>想要全螢幕玩？</b>點 Safari 的「分享」<svg class="share" viewBox="0 0 20 24" aria-hidden="true"><path d="M10 2v13M5.5 6.5 10 2l4.5 4.5M6 10H3v12h14V10h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>→「加入主畫面」，再從主畫面打開遊戲，就不會有網址列了。
+      </div>
+      <button type="button" id="home-tip-close" aria-label="關閉提示">×</button>
     </div>
     <script>
       // Remember every Web Audio context the game creates, so the first touch / click can wake them all at once and the
@@ -48,12 +61,22 @@
       var progressFill = document.querySelector("#unity-progress-fill");
       var warningBanner = document.querySelector("#unity-warning");
 
-      // The canvas always covers the visible window (window.innerWidth/innerHeight also track the mobile
-      // address bar). Unity matches its render size to the canvas, so the game re-lays out on every resize
-      // and rotation; the CSS size never exceeds the window, so the page never scrolls.
+      // The canvas covers the whole visible screen. Its height is 100dvh (style.css): the height that is really
+      // visible with or without the phone browser's address bar, so the game is never cut off and never leaves a
+      // gap when the bar shows or hides, and it fills the screen in full screen. Unity matches its render size to the
+      // canvas, so the game re-lays out on every resize, rotation and full-screen change; the page never scrolls.
+      // Two exceptions size it in pixels instead: browsers without dvh, and an open on-screen keyboard (login
+      // fields), which only shrinks the visual viewport — the game then fits above the keyboard as before.
+      var dvh = !!(window.CSS && CSS.supports && CSS.supports("height", "100dvh"));
       function fitCanvas() {
+        var viewport = window.visualViewport;
+        var keyboard = !!viewport && viewport.height < window.innerHeight * 0.75;
+        if (dvh && !keyboard) {
+          container.style.width = container.style.height = canvas.style.width = canvas.style.height = "";
+          return;
+        }
         var w = window.innerWidth, h = window.innerHeight;
-        if (window.visualViewport) { w = Math.round(window.visualViewport.width); h = Math.round(window.visualViewport.height); }
+        if (viewport) { w = Math.round(viewport.width); h = Math.round(viewport.height); }
         container.style.width = w + "px";
         container.style.height = h + "px";
         canvas.style.width = w + "px";
@@ -63,6 +86,29 @@
       window.addEventListener("resize", fitCanvas);
       window.addEventListener("orientationchange", function () { setTimeout(fitCanvas, 120); setTimeout(fitCanvas, 500); });
       if (window.visualViewport) window.visualViewport.addEventListener("resize", fitCanvas);
+      // Entering / leaving full screen (Assets/Plugins/WebGL/WebFullscreen.jslib, the pause menu's 「全螢幕」).
+      ["fullscreenchange", "webkitfullscreenchange"].forEach(function (type) {
+        document.addEventListener(type, function () { fitCanvas(); setTimeout(fitCanvas, 150); setTimeout(fitCanvas, 600); });
+      });
+
+      // iPhone Safari: the 「加入主畫面」 note (the game shows it on the login screen only).
+      (function () {
+        var tip = document.querySelector("#home-tip");
+        var ua = navigator.userAgent || "";
+        var iphone = /iPhone|iPod/.test(ua);
+        var safari = /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\/|Line\/|FBAN|FBAV|Instagram/.test(ua);
+        var fromHomeScreen = window.navigator.standalone === true ||
+          (window.matchMedia && window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches);
+        var key = "gameHomeTipClosed", closed = false;
+        try { closed = window.localStorage.getItem(key) === "1"; } catch (e) {}
+        var applies = iphone && safari && !fromHomeScreen;
+        window.gameHomeScreenTip = function (show) { tip.hidden = !(show && applies && !closed); };
+        document.querySelector("#home-tip-close").addEventListener("click", function () {
+          closed = true;
+          try { window.localStorage.setItem(key, "1"); } catch (e) {}
+          tip.hidden = true;
+        });
+      })();
 
       // Keep touches for the game: no page scroll, pull-to-refresh, long-press menu or pinch zoom (touch-action: none
       // in the CSS stops double-tap zoom). touchend is left alone so Unity's on-screen keyboard can still open for
@@ -89,12 +135,12 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/30eb59af99d3f492f28286e340482cb8.loader.js";
+      var loaderUrl = buildUrl + "/db419c53185486daa66280a69a63c2cd.loader.js";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/2014b1b7d66e7d49bb8dc54e27838797.data.unityweb",
-        frameworkUrl: buildUrl + "/ac407ed9e608b84f50556a6b772c919f.framework.js.unityweb",
-        codeUrl: buildUrl + "/24e5b286285e572ef935117fe831bd06.wasm.unityweb",
+        dataUrl: buildUrl + "/170813b173160efbd85849e0e9644a8c.data.unityweb",
+        frameworkUrl: buildUrl + "/6cd772dfaac382c7df064f528546516b.framework.js.unityweb",
+        codeUrl: buildUrl + "/70c4f56012b75f11293011a1a07b133f.wasm.unityweb",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "RPG2023",
