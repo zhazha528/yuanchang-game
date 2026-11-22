@@ -32,13 +32,55 @@
     </div>
     <!-- iPhone Safari cannot go full screen in a web page: on the login screen, a short note on adding the game to the
          home screen (shown by the game through window.gameHomeScreenTip; 「×」 hides it for good on this phone). -->
-    <div id="home-tip" hidden>
+    <div id="home-tip" class="page-tip" hidden>
       <div id="home-tip-text">
         <b>想要全螢幕玩？</b>點 Safari 的「分享」<svg class="share" viewBox="0 0 20 24" aria-hidden="true"><path d="M10 2v13M5.5 6.5 10 2l4.5 4.5M6 10H3v12h14V10h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>→「加入主畫面」，再從主畫面打開遊戲，就不會有網址列了。
       </div>
-      <button type="button" id="home-tip-close" aria-label="關閉提示">×</button>
+      <button type="button" id="home-tip-close" class="page-tip-close" aria-label="關閉提示">×</button>
     </div>
+    <!-- In-app browsers (LINE, Facebook, Instagram…) cannot go full screen: a short closable note instead of the
+         full-screen button, shown while loading and on the login screen. LINE gets a link that reopens the game in the
+         phone's own browser (?openExternalBrowser=1). -->
+    <div id="inapp-tip" class="page-tip" hidden>
+      <div id="inapp-tip-text">建議用 Chrome 或 Safari 開啟，可以全螢幕遊玩<a id="inapp-tip-open" href="#" hidden>改用瀏覽器開啟</a></div>
+      <button type="button" id="inapp-tip-close" class="page-tip-close" aria-label="關閉提示">×</button>
+    </div>
+    <!-- Phone outside full screen (after leaving it): one tap goes back to full screen
+         (Assets/Plugins/WebGL/WebFullscreen.jslib shows and hides it). -->
+    <button type="button" id="fs-button" aria-label="全螢幕" hidden>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 7.5v-5h5M12.5 2.5h5v5M17.5 12.5v5h-5M7.5 17.5h-5v-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>全螢幕</span>
+    </button>
     <script>
+      // Phone browsers: Unity types into its own HTML input and moves the caret with setSelectionRange. Inputs of type
+      // email / number refuse that with an InvalidStateError, which would stop the whole game with an error box. The
+      // game's fields are all plain text now (GameFlow/WebInputMode.cs); this guard keeps a refused caret move harmless.
+      (function () {
+        var proto = window.HTMLInputElement && HTMLInputElement.prototype;
+        if (!proto || !proto.setSelectionRange || proto.setSelectionRange.__gameGuarded) return;
+        var original = proto.setSelectionRange;
+        var guarded = function () {
+          try {
+            return original.apply(this, arguments);
+          } catch (e) {
+            if (e && e.name === "InvalidStateError") return;   // this input type has no caret: nothing to move
+            throw e;
+          }
+        };
+        guarded.__gameGuarded = true;
+        proto.setSelectionRange = guarded;
+      })();
+
+      // In-app browsers of chat / social apps: no full screen there (WebFullscreen.jslib reads this too).
+      window.gameInAppBrowser = (function () {
+        var ua = navigator.userAgent || "";
+        var apps = [["LINE", /\bLine\//], ["Facebook", /FBAN|FBAV|FB_IAB|FBIOS|FB4A/], ["Instagram", /Instagram/],
+          ["Threads", /Barcelona/], ["WeChat", /MicroMessenger/], ["KakaoTalk", /KAKAOTALK/],
+          ["TikTok", /musical_ly|BytedanceWebview/], ["Snapchat", /Snapchat/], ["LinkedIn", /LinkedInApp/], ["App", /; wv\)/]];
+        for (var i = 0; i < apps.length; i++) if (apps[i][1].test(ua)) return { inApp: true, name: apps[i][0], line: apps[i][0] === "LINE" };
+        return { inApp: false, name: "", line: false };
+      })();
+
       // Remember every Web Audio context the game creates, so the first touch / click can wake them all at once and the
       // first sound effect is never lost (see Assets/Plugins/WebGL/GameSfx.jslib). Contexts work exactly as before.
       (function () {
@@ -83,6 +125,7 @@
         canvas.style.height = h + "px";
       }
       fitCanvas();
+      window.gameFitCanvas = fitCanvas;   // WebFullscreen.jslib re-fits after entering full screen and locking landscape
       window.addEventListener("resize", fitCanvas);
       window.addEventListener("orientationchange", function () { setTimeout(fitCanvas, 120); setTimeout(fitCanvas, 500); });
       if (window.visualViewport) window.visualViewport.addEventListener("resize", fitCanvas);
@@ -91,7 +134,9 @@
         document.addEventListener(type, function () { fitCanvas(); setTimeout(fitCanvas, 150); setTimeout(fitCanvas, 600); });
       });
 
-      // iPhone Safari: the 「加入主畫面」 note (the game shows it on the login screen only).
+      // The notes on the login screen (the game calls window.gameHomeScreenTip(true) there, false elsewhere):
+      // iPhone Safari: 「加入主畫面」 (「×」 remembered for good). In-app browsers: 「建議用 Chrome 或 Safari 開啟」,
+      // already while loading (「×」 remembered for this visit).
       (function () {
         var tip = document.querySelector("#home-tip");
         var ua = navigator.userAgent || "";
@@ -101,12 +146,35 @@
           (window.matchMedia && window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches);
         var key = "gameHomeTipClosed", closed = false;
         try { closed = window.localStorage.getItem(key) === "1"; } catch (e) {}
-        var applies = iphone && safari && !fromHomeScreen;
-        window.gameHomeScreenTip = function (show) { tip.hidden = !(show && applies && !closed); };
+        var applies = iphone && safari && !fromHomeScreen && !window.gameInAppBrowser.inApp;
+
+        var inAppTip = document.querySelector("#inapp-tip");
+        var inAppKey = "gameInAppTipClosed", inAppClosed = false;
+        try { inAppClosed = window.sessionStorage.getItem(inAppKey) === "1"; } catch (e) {}
+        var inApp = window.gameInAppBrowser.inApp;
+        if (window.gameInAppBrowser.line) {
+          // LINE opens a link with openExternalBrowser=1 in the phone's own browser (Chrome / Safari).
+          var open = document.querySelector("#inapp-tip-open");
+          var url = location.href.replace(/#.*$/, "");
+          url += (url.indexOf("?") >= 0 ? "&" : "?") + "openExternalBrowser=1";
+          open.href = url;
+          open.hidden = false;
+        }
+        inAppTip.hidden = !(inApp && !inAppClosed);   // while loading
+
+        window.gameHomeScreenTip = function (show) {
+          tip.hidden = !(show && applies && !closed);
+          inAppTip.hidden = !(show && inApp && !inAppClosed);
+        };
         document.querySelector("#home-tip-close").addEventListener("click", function () {
           closed = true;
           try { window.localStorage.setItem(key, "1"); } catch (e) {}
           tip.hidden = true;
+        });
+        document.querySelector("#inapp-tip-close").addEventListener("click", function () {
+          inAppClosed = true;
+          try { window.sessionStorage.setItem(inAppKey, "1"); } catch (e) {}
+          inAppTip.hidden = true;
         });
       })();
 
@@ -135,12 +203,12 @@
       }
 
       var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/db419c53185486daa66280a69a63c2cd.loader.js";
+      var loaderUrl = buildUrl + "/238ae6816a004fb8e42e7270a54a9908.loader.js";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/170813b173160efbd85849e0e9644a8c.data.unityweb",
-        frameworkUrl: buildUrl + "/6cd772dfaac382c7df064f528546516b.framework.js.unityweb",
-        codeUrl: buildUrl + "/70c4f56012b75f11293011a1a07b133f.wasm.unityweb",
+        dataUrl: buildUrl + "/57d033517a156de335f354e27b49d457.data.unityweb",
+        frameworkUrl: buildUrl + "/1ab9f84528b29e03015c7f8a3c645404.framework.js.unityweb",
+        codeUrl: buildUrl + "/9bca70b2ca68e6db8c6db19dd87492ef.wasm.unityweb",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "RPG2023",
